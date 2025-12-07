@@ -1,227 +1,259 @@
-# 🧰 AI Agent Service Toolkit
+# 🎓 智能学术研究平台
 
-A full toolkit for running an AI agent service built with LangGraph, FastAPI and Streamlit.
-It includes a [LangGraph](https://langchain-ai.github.io/langgraph/) agent, a [FastAPI](https://fastapi.tiangolo.com/) service to serve it, a client to interact with the service, and a [Streamlit](https://streamlit.io/) app that uses the client to provide a chat interface. Data structures and settings are built with [Pydantic](https://github.com/pydantic/pydantic).
+一个基于 AI Agent 的智能学术研究系统，帮助学生和研究人员快速查找、下载学术论文，并基于论文内容进行智能问答。
 
-This project offers a template for you to easily build and run your own agents using the LangGraph framework. It demonstrates a complete setup from agent definition to user interface, making it easier to get started with LangGraph-based projects by providing a full, robust toolkit.
+## 项目简介
 
-**[🎥 Watch a video walkthrough of the repo and app](https://www.youtube.com/watch?v=pdYVHw_YCNY)**
+本项目是一个专门为学术研究设计的智能助手系统，通过 AI Agent 技术实现：
 
-## Overview
+- **文献搜索**：从 OpenReview（ICML、NeurIPS、ICLR 等顶级会议）和 arXiv 搜索学术论文
+- **文献下载**：自动下载论文 PDF 文件并保存到本地
+- **向量数据库**：将下载的论文转换为向量数据库，支持快速检索
+- **智能问答**：基于论文内容进行 RAG（检索增强生成）问答，回答论文相关问题
 
-### [Try the app!](https://agent-service-toolkit.streamlit.app/)
+## 核心功能
 
-<a href="https://agent-service-toolkit.streamlit.app/"><img src="media/app_screenshot.png" width="600"></a>
+### 1. 文献搜索与下载
 
-### Quickstart
+- **OpenReview 搜索**：搜索 ICML、NeurIPS、ICLR 等顶级会议的论文
+- **arXiv 下载**：支持通过 arXiv ID 或 URL 直接下载论文
+- **自动保存**：下载的论文自动保存到 `./data/downloads/papers/` 目录
 
-Run directly in python
+### 2. 向量数据库管理
+
+- **PDF 转向量库**：将下载的 PDF 论文转换为向量数据库（支持 ChromaDB 和 Qdrant）
+- **多数据库支持**：可以创建和管理多个论文数据库
+- **数据库切换**：支持在不同论文数据库之间切换查询
+
+### 3. 智能问答（RAG）
+
+- **语义搜索**：基于向量数据库进行语义搜索，找到最相关的论文内容
+- **内容问答**：根据论文内容回答具体问题
+- **引用支持**：回答中包含论文引用信息
+
+### 4. 一体化工作流
+
+通过 **Paper Research Supervisor** Agent，可以一键完成：
+1. 搜索并下载论文
+2. 从 PDF 创建向量数据库
+3. 基于论文内容回答问题
+
+## 快速开始
+
+### 环境要求
+
+- Python 3.12+
+- 至少一个 LLM API Key（OpenAI、Groq 等）
+
+### 安装步骤
 
 ```sh
-# At least one LLM API key is required
-echo 'OPENAI_API_KEY=your_openai_api_key' >> .env
+# 1. 克隆项目
+git clone <repository-url>
+cd agent-service-toolkit
 
-# uv is the recommended way to install agent-service-toolkit, but "pip install ." also works
-# For uv installation options, see: https://docs.astral.sh/uv/getting-started/installation/
-curl -LsSf https://astral.sh/uv/0.7.19/install.sh | sh
-
-# Install dependencies. "uv sync" creates .venv automatically
+# 2. 安装依赖（推荐使用 uv）
+curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --frozen
-source .venv/bin/activate
+
+# 或使用 pip
+pip install -e .
+```
+
+### 配置环境变量
+
+创建 `.env` 文件：
+
+```sh
+# 必需的 API Key（至少一个）
+OPENAI_API_KEY=your_openai_api_key
+
+# 可选：使用本地 embedding 模型（节省 API 费用）
+USE_LOCAL_MODEL=True
+
+# 可选：向量数据库配置
+VECTOR_DB_TYPE=qdrant  # 或 chroma
+QDRANT_PATH=./data/vector_databases
+CHROMA_DB_PATH=./data/vector_databases
+
+# 可选：内容安全检查（需要 Groq API Key）
+GROQ_API_KEY=your_groq_api_key
+```
+
+### 启动服务
+
+**方式 1：直接运行**
+
+```sh
+# 启动 FastAPI 服务
 python src/run_service.py
 
-# In another shell
-source .venv/bin/activate
+# 在另一个终端启动 Streamlit Web 界面
 streamlit run src/streamlit_app.py
 ```
 
-Run with docker
+**方式 2：使用 Docker**
 
 ```sh
-echo 'OPENAI_API_KEY=your_openai_api_key' >> .env
 docker compose watch
 ```
 
-### Architecture Diagram
+访问：
+- Web 界面：http://localhost:8501
+- API 服务：http://localhost:8080
+- API 文档：http://localhost:8080/redoc
 
-<img src="media/agent_architecture.png" width="600">
+## 使用示例
 
-### Key Features
+### 完整工作流示例
 
-1. **LangGraph Agent and latest features**: A customizable agent built using the LangGraph framework. Implements the latest LangGraph v0.3 features including human in the loop with `interrupt()`, flow control with `Command`, long-term memory with `Store`, and `langgraph-supervisor`.
-1. **FastAPI Service**: Serves the agent with both streaming and non-streaming endpoints.
-1. **Advanced Streaming**: A novel approach to support both token-based and message-based streaming.
-1. **Streamlit Interface**: Provides a user-friendly chat interface for interacting with the agent.
-1. **Multiple Agent Support**: Run multiple agents in the service and call by URL path. Available agents and models are described in `/info`
-1. **Asynchronous Design**: Utilizes async/await for efficient handling of concurrent requests.
-1. **Content Moderation**: Implements LlamaGuard for content moderation (requires Groq API key).
-1. **RAG Agent**: A basic RAG agent implementation using ChromaDB - see [docs](docs/RAG_Assistant.md).
-1. **Feedback Mechanism**: Includes a star-based feedback system integrated with LangSmith.
-1. **Docker Support**: Includes Dockerfiles and a docker compose file for easy development and deployment.
-1. **Testing**: Includes robust unit and integration tests for the full repo.
-
-### Key Files
-
-The repository is structured as follows:
-
-- `src/agents/`: Defines several agents with different capabilities
-- `src/schema/`: Defines the protocol schema
-- `src/core/`: Core modules including LLM definition and settings
-- `src/service/service.py`: FastAPI service to serve the agents
-- `src/client/client.py`: Client to interact with the agent service
-- `src/streamlit_app.py`: Streamlit app providing a chat interface
-- `tests/`: Unit and integration tests
-
-## Setup and Usage
-
-1. Clone the repository:
-
-   ```sh
-   git clone https://github.com/JoshuaC215/agent-service-toolkit.git
-   cd agent-service-toolkit
-   ```
-
-2. Set up environment variables:
-   Create a `.env` file in the root directory. At least one LLM API key or configuration is required. See the [`.env.example` file](./.env.example) for a full list of available environment variables, including a variety of model provider API keys, header-based authentication, LangSmith tracing, testing and development modes, and OpenWeatherMap API key.
-
-3. You can now run the agent service and the Streamlit app locally, either with Docker or just using Python. The Docker setup is recommended for simpler environment setup and immediate reloading of the services when you make changes to your code.
-
-### Additional setup for specific AI providers
-
-- [Setting up Ollama](docs/Ollama.md)
-- [Setting up VertexAI](docs/VertexAI.md)
-- [Setting up RAG with ChromaDB](docs/RAG_Assistant.md)
-
-### Building or customizing your own agent
-
-To customize the agent for your own use case:
-
-1. Add your new agent to the `src/agents` directory. You can copy `research_assistant.py` or `chatbot.py` and modify it to change the agent's behavior and tools.
-1. Import and add your new agent to the `agents` dictionary in `src/agents/agents.py`. Your agent can be called by `/<your_agent_name>/invoke` or `/<your_agent_name>/stream`.
-1. Adjust the Streamlit interface in `src/streamlit_app.py` to match your agent's capabilities.
-
-
-### Handling Private Credential files
-
-If your agents or chosen LLM require file-based credential files or certificates, the `privatecredentials/` has been provided for your development convenience. All contents, excluding the `.gitkeep` files, are ignored by git and docker's build process. See [Working with File-based Credentials](docs/File_Based_Credentials.md) for suggested use.
-
-
-### Docker Setup
-
-This project includes a Docker setup for easy development and deployment. The `compose.yaml` file defines three services: `postgres`, `agent_service` and `streamlit_app`. The `Dockerfile` for each service is in their respective directories.
-
-For local development, we recommend using [docker compose watch](https://docs.docker.com/compose/file-watch/). This feature allows for a smoother development experience by automatically updating your containers when changes are detected in your source code.
-
-1. Make sure you have Docker and Docker Compose (>= [v2.23.0](https://docs.docker.com/compose/release-notes/#2230)) installed on your system.
-
-2. Create a `.env` file from the `.env.example`. At minimum, you need to provide an LLM API key (e.g., OPENAI_API_KEY).
-   ```sh
-   cp .env.example .env
-   # Edit .env to add your API keys
-   ```
-
-3. Build and launch the services in watch mode:
-
-   ```sh
-   docker compose watch
-   ```
-
-   This will automatically:
-   - Start a PostgreSQL database service that the agent service connects to
-   - Start the agent service with FastAPI
-   - Start the Streamlit app for the user interface
-
-4. The services will now automatically update when you make changes to your code:
-   - Changes in the relevant python files and directories will trigger updates for the relevant services.
-   - NOTE: If you make changes to the `pyproject.toml` or `uv.lock` files, you will need to rebuild the services by running `docker compose up --build`.
-
-5. Access the Streamlit app by navigating to `http://localhost:8501` in your web browser.
-
-6. The agent service API will be available at `http://0.0.0.0:8080`. You can also use the OpenAPI docs at `http://0.0.0.0:8080/redoc`.
-
-7. Use `docker compose down` to stop the services.
-
-This setup allows you to develop and test your changes in real-time without manually restarting the services.
-
-### Building other apps on the AgentClient
-
-The repo includes a generic `src/client/client.AgentClient` that can be used to interact with the agent service. This client is designed to be flexible and can be used to build other apps on top of the agent. It supports both synchronous and asynchronous invocations, and streaming and non-streaming requests.
-
-See the `src/run_client.py` file for full examples of how to use the `AgentClient`. A quick example:
+使用 **Paper Research Supervisor** 完成从搜索到问答的完整流程：
 
 ```python
 from client import AgentClient
-client = AgentClient()
 
-response = client.invoke("Tell me a brief joke?")
-response.pretty_print()
-# ================================== Ai Message ==================================
-#
-# A man walked into a library and asked the librarian, "Do you have any books on Pavlov's dogs and Schrödinger's cat?"
-# The librarian replied, "It rings a bell, but I'm not sure if it's here or not."
+client = AgentClient(agent_id="paper-research-supervisor")
 
+# 一句话完成：搜索、下载、创建数据库、回答问题
+response = client.invoke(
+    "帮我下载 Transformer 论文（arXiv:1706.03762），"
+    "然后根据论文内容回答：Transformer 架构的主要创新是什么？"
+)
 ```
 
-### Development with LangGraph Studio
+### 分步骤使用
 
-The agent supports [LangGraph Studio](https://langchain-ai.github.io/langgraph/concepts/langgraph_studio/), the IDE for developing agents in LangGraph.
+**1. 搜索和下载论文**
 
-`langgraph-cli[inmem]` is installed with `uv sync`. You can simply add your `.env` file to the root directory as described above, and then launch LangGraph Studio with `langgraph dev`. Customize `langgraph.json` as needed. See the [local quickstart](https://langchain-ai.github.io/langgraph/cloud/how-tos/studio/quick_start/#local-development-server) to learn more.
+```python
+from client import AgentClient
 
-### Local development without Docker
+client = AgentClient(agent_id="openreview-agent")
 
-You can also run the agent service and the Streamlit app locally without Docker, just using a Python virtual environment.
+# 搜索论文
+response = client.invoke("搜索关于 large language model inference optimization 的论文")
 
-1. Create a virtual environment and install dependencies:
+# 下载论文
+response = client.invoke("下载 arXiv:2309.06180 的论文")
+```
 
-   ```sh
-   uv sync --frozen
-   source .venv/bin/activate
-   ```
+**2. 创建向量数据库**
 
-2. Run the FastAPI server:
+```python
+from client import AgentClient
 
-   ```sh
-   python src/run_service.py
-   ```
+client = AgentClient(agent_id="rag-assistant")
 
-3. In a separate terminal, run the Streamlit app:
+# 从下载的 PDF 创建向量数据库
+response = client.invoke(
+    "从文件 ./data/downloads/papers/[2309.06180] Efficient Memory Management for Large Language Model Serving with PagedAttention_2309.06180.pdf 创建向量数据库"
+)
+```
 
-   ```sh
-   streamlit run src/streamlit_app.py
-   ```
+**3. 查询论文内容**
 
-4. Open your browser and navigate to the URL provided by Streamlit (usually `http://localhost:8501`).
+```python
+from client import AgentClient
 
-## Projects built with or inspired by agent-service-toolkit
+client = AgentClient(agent_id="rag-assistant")
 
-The following are a few of the public projects that drew code or inspiration from this repo.
+# 基于论文内容回答问题
+response = client.invoke("根据论文内容，PagedAttention 是什么？它如何解决内存管理问题？")
+```
 
-- **[PolyRAG](https://github.com/QuentinFuxa/PolyRAG)** - Extends agent-service-toolkit with RAG capabilities over both PostgreSQL databases and PDF documents.
-- **[alexrisch/agent-web-kit](https://github.com/alexrisch/agent-web-kit)** - A Next.JS frontend for agent-service-toolkit
-- **[raushan-in/dapa](https://github.com/raushan-in/dapa)** - Digital Arrest Protection App (DAPA) enables users to report financial scams and frauds efficiently via a user-friendly platform.
+## 项目结构
 
-**Please create a pull request editing the README or open a discussion with any new ones to be added!** Would love to include more projects.
+```
+.
+├── src/
+│   ├── agents/                    # Agent 定义
+│   │   ├── paper_research_supervisor.py  # 监督者 Agent（推荐使用）
+│   │   ├── openreview_agent.py           # 论文搜索和下载 Agent
+│   │   ├── rag_assistant.py              # RAG 问答 Agent
+│   │   ├── tools.py                      # 工具函数（搜索、下载、数据库等）
+│   │   └── agents.py                     # Agent 注册
+│   ├── core/                     # 核心模块
+│   │   ├── llm.py                # LLM 配置
+│   │   └── settings.py           # 设置管理
+│   ├── service/                  # FastAPI 服务
+│   ├── client/                   # 客户端
+│   └── streamlit_app.py          # Web 界面
+├── data/                         # 数据目录
+│   ├── downloads/papers/         # 下载的论文 PDF
+│   └── vector_databases/         # 向量数据库存储
+└── tests/                        # 测试文件
+```
 
-## Contributing
+## 可用的 Agents
 
-Contributions are welcome! Please feel free to submit a Pull Request. Currently the tests need to be run using the local development without Docker setup. To run the tests for the agent service:
+1. **paper-research-supervisor**（推荐）
+   - 功能：协调完成完整的文献研究工作流
+   - 用途：搜索、下载、创建数据库、回答问题一站式完成
 
-1. Ensure you're in the project root directory and have activated your virtual environment.
+2. **openreview-agent**
+   - 功能：专门用于搜索和下载学术论文
+   - 用途：从 OpenReview 和 arXiv 搜索并下载论文
 
-2. Install the development dependencies and pre-commit hooks:
+3. **rag-assistant**
+   - 功能：RAG 问答助手
+   - 用途：创建向量数据库、查询论文内容、回答问题
 
-   ```sh
-   uv sync --frozen
-   pre-commit install
-   ```
+## 技术栈
 
-3. Run the tests using pytest:
+- **LangGraph**: Agent 框架，实现多 Agent 协调
+- **FastAPI**: RESTful API 服务
+- **Streamlit**: Web 用户界面
+- **ChromaDB/Qdrant**: 向量数据库，存储论文向量
+- **LangChain**: LLM 集成和工具调用
+- **LlamaGuard**: 内容安全检查（可选）
 
-   ```sh
-   pytest
-   ```
+## 数据存储
+
+所有数据统一存储在 `./data/` 目录下：
+
+- `./data/downloads/papers/` - 下载的论文 PDF 文件
+- `./data/vector_databases/` - 向量数据库文件
+
+## 开发指南
+
+### 本地开发
+
+```sh
+# 创建虚拟环境
+uv sync --frozen
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 运行服务
+python src/run_service.py
+
+# 运行 Web 界面
+streamlit run src/streamlit_app.py
+```
+
+### 运行测试
+
+```sh
+pytest
+
+# 运行特定测试
+pytest tests/agents/test_paper_research_supervisor.py
+```
+
+## 常见问题
+
+### 如何切换向量数据库？
+
+使用 `rag-assistant` 的 `Get_Vector_DB_Info` 工具查看所有数据库，然后使用 `Switch_Vector_DB` 切换。
+
+### 支持哪些论文来源？
+
+- OpenReview：ICML、NeurIPS、ICLR 等会议论文
+- arXiv：所有 arXiv 论文
+
+### 可以使用本地 embedding 模型吗？
+
+可以，设置 `USE_LOCAL_MODEL=True` 即可使用本地模型（如 BGE），无需 OpenAI API。
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License

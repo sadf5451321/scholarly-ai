@@ -13,21 +13,16 @@ from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import ToolNode
 
 from agents.llama_guard import LlamaGuard, LlamaGuardOutput, SafetyAssessment
-from agents.tools import database_search
+from agents.tools import database_search, create_vector_db_from_pdf, get_vector_db_info, switch_vector_db, list_downloaded_papers
 from core import get_model, settings
 
 
 class AgentState(MessagesState, total=False):
-    """`total=False` is PEP589 specs.
-
-    documentation: https://typing.readthedocs.io/en/latest/spec/typeddict.html#totality
-    """
-
     safety: LlamaGuardOutput
     remaining_steps: RemainingSteps
 
 
-tools = [database_search]
+tools = [database_search, create_vector_db_from_pdf, get_vector_db_info, switch_vector_db, list_downloaded_papers]
 
 
 current_date = datetime.now().strftime("%B %d, %Y")
@@ -37,6 +32,31 @@ instructions = f"""
     accurate, concise, and friendly information about company policies, values, procedures, and employee resources.
     Today's date is {current_date}.
 
+    You have access to the following tools:
+    1. Database_Search - Search the vector database for relevant information
+       - Use this to find information from documents that have been indexed in the vector database
+       - Returns relevant document chunks based on the query
+    
+    2. Create_Vector_DB_From_PDF - Create a vector database from a PDF file
+       - Use this when you need to index a PDF file (e.g., a downloaded paper) into the vector database
+       - Requires the PDF file path (e.g., from Download_Paper tool results)
+       - After creation, the database becomes available for Database_Search
+       - The PDF will be split into chunks and indexed for semantic search
+    
+    3. Get_Vector_DB_Info - Get information about the current vector database
+       - Use this to check which database is currently active
+       - Returns current database type, path, and a list of all available databases
+       - Useful when the user asks about database status or wants to see available databases
+    
+    4. Switch_Vector_DB - Switch to a different vector database
+       - Use this when the user wants to switch to a different database
+       - Requires the database path (can be obtained from Get_Vector_DB_Info)
+       - Optionally specify db_type ("chroma" or "qdrant") and collection_name (for Qdrant)
+       - After switching, Database_Search will use the new database
+    5. List_Downloaded_Papers - List all PDF files in ./data/downloads/papers/
+       - Use this to see what papers are available before creating a vector database
+       - Helpful when you need to find the exact filename of a downloaded paper
+
     NOTE: THE USER CAN'T SEE THE TOOL RESPONSE.
 
     A few things to remember:
@@ -44,6 +64,8 @@ instructions = f"""
     - Please include markdown-formatted links to any citations used in your response. Only include one
     or two citations per response unless more are needed. ONLY USE LINKS RETURNED BY THE TOOLS.
     - Only use information from the database. Do not use information from outside sources.
+    - When a user asks you to process a downloaded paper PDF, use Create_Vector_DB_From_PDF to index it first, then use Database_Search to answer questions about it.
+    - When a user asks about available databases or wants to switch databases, use Get_Vector_DB_Info first to see what's available, then use Switch_Vector_DB if needed.
     """
 
 

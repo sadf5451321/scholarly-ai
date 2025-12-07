@@ -205,12 +205,15 @@ embedding.model/
 logs/
 *.log
 
-# Temporary test directories
-tests1/
-
 # UV package manager
 .uv/
 
 # OS specific
 Thumbs.db
 .DS_Store
+# 用户数据目录
+data/
+
+# 临时文件
+checkpoints.db
+checkpoints.db-*

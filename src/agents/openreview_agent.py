@@ -8,7 +8,7 @@ from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import ToolNode
 
 from agents.llama_guard import LlamaGuard, LlamaGuardOutput, SafetyAssessment
-from agents.tools import openreview_search
+from agents.tools import openreview_search, download_paper, download_paper_from_arxiv
 from core import get_model, settings
 from core.logging_config import get_logger
 
@@ -20,28 +20,46 @@ class AgentState(MessagesState, total=False):
     remaining_steps: RemainingSteps
 
 
-tools = [openreview_search]
+tools = [openreview_search, download_paper, download_paper_from_arxiv]
 
 current_date = datetime.now().strftime("%B %d, %Y")
 instructions = f"""
-    You are a helpful academic paper search assistant specialized in finding papers from OpenReview.
+    You are a helpful academic paper search assistant specialized in finding papers from OpenReview and arXiv.
     Today's date is {current_date}.
 
-    You have access to the OpenReview_Search tool which can search for papers from conferences like:
-    - ICML (International Conference on Machine Learning)
-    - NeurIPS (Neural Information Processing Systems)
-    - ICLR (International Conference on Learning Representations)
-    - And other conferences hosted on OpenReview
+    You have access to the following tools:
+    1. OpenReview_Search - Search for papers from conferences like:
+       - ICML (International Conference on Machine Learning)
+       - NeurIPS (Neural Information Processing Systems)
+       - ICLR (International Conference on Learning Representations)
+       - And other conferences hosted on OpenReview
+       
+       IMPORTANT: When the user searches for a keyword (like "agent", "transformer", etc.):
+       - Use the keyword parameter to search across multiple conferences
+       - The tool will automatically search NeurIPS, ICLR, ICML and filter results
+       - If no keyword is provided, search by venue instead
+    
+    2. Download_Paper - Download PDF files of papers from OpenReview
+       - Use this tool when the user explicitly asks to download a paper from OpenReview
+       - Requires the paper_id (which can be obtained from OpenReview_Search results)
+       - The paper will be saved to ./data/downloads/papers/
+    
+    3. Download_Paper_From_ArXiv - Download PDF files of papers from arXiv
+       - Use this tool when the user wants to download a paper from arXiv
+       - Can use arxiv_id (e.g., "1706.03762") or arxiv_url (e.g., "https://arxiv.org/abs/1706.03762")
+       - The paper will be saved to ./data/downloads/papers/
+       - Use this for papers that are not available on OpenReview (e.g., older papers like Transformer 2017, arXiv-only papers)
+       - For well-known papers with known arXiv IDs, you can directly download them
 
     NOTE: THE USER CAN'T SEE THE TOOL RESPONSE DIRECTLY.
 
     Guidelines:
-    - When searching for papers, you can specify the venue (e.g., "ICML 2025 oral", "NeurIPS 2024")
-    - You can search for papers from different conferences by adjusting the venue and domain parameters
-    - Always provide a summary of the papers found, including titles, authors, and key information
-    - If the user asks about a specific conference or year, use the appropriate parameters
-    - Format your responses clearly with paper titles, authors, and brief summaries
-    - You can search for papers by default parameters or customize based on user requests
+    - When user searches for a keyword, use OpenReview_Search with keyword parameter
+    - If a paper is not found on OpenReview but you know it's on arXiv (e.g., Transformer paper arXiv:1706.03762), 
+      use Download_Paper_From_ArXiv directly
+    - For well-known papers with known arXiv IDs, you can directly download from arXiv without searching first
+    - Always inform the user where the file was saved (./data/downloads/papers/)
+    - After downloading, you can inform the user that the paper is ready for vector database creation
     """
 
 
@@ -161,4 +179,3 @@ agent.add_conditional_edges("model", pending_tool_calls, {"tools": "tools", "don
 
 
 openreview_agent = agent.compile()
-

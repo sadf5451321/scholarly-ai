@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional, Dict, Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -8,6 +8,7 @@ from langgraph.graph import END, MessagesState, StateGraph
 from langgraph.managed import RemainingSteps
 
 from agents.llama_guard import LlamaGuard, LlamaGuardOutput, SafetyAssessment
+from .llama_guard import LlamaGuard, LlamaGuardOutput, SafetyAssessment
 from agents.openreview_agent import openreview_agent
 from agents.rag_assistant import rag_assistant
 from core import get_model, settings
@@ -16,34 +17,70 @@ from core.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+from dataclasses import dataclass, field
+
+@dataclass
+class ResearchContext:
+    """存储研究任务的相关上下文信息"""
+    # 下载的论文信息
+    downloaded_papers: list[Dict[str, Any]] = field(default_factory=list)
+    # 当前处理的文件路径
+    current_file_path: Optional[str] = None
+    # 已创建的向量数据库信息
+    created_databases: list[Dict[str, Any]] = field(default_factory=list)
+    # 用户原始请求
+    original_query: Optional[str] = None
+    # 任务状态
+    task_status: str = "idle"  # idle, downloading, creating_db, querying
+
 class AgentState(MessagesState, total=False):
     """Supervisor agent state that can route to sub-agents."""
     safety: LlamaGuardOutput
     remaining_steps: RemainingSteps
-
+    research_context: ResearchContext  # 新增：研究上下文信息
 
 current_date = datetime.now().strftime("%B %d, %Y")
 instructions = f"""
 You are a research supervisor assistant that coordinates between two specialized agents:
-1. **OpenReview Agent**: Searches for academic papers from OpenReview (ICML, NeurIPS, ICLR, etc.)
-2. **RAG Assistant**: Answers questions based on papers stored in a vector database
+1. **OpenReview Agent**: Searches for academic papers from OpenReview and arXiv, and downloads them
+2. **RAG Assistant**: Creates vector databases from PDFs and answers questions based on papers in the database
 
 Today's date is {current_date}.
 
-Your workflow:
-- When users want to **search for papers**, use `transfer_to_openreview_agent`
-- When users want to **ask questions about papers** in the database, use `transfer_to_rag_assistant`
-- You can also coordinate both: first search papers, then answer questions about them
+Your workflow for complete research tasks:
+1. **Search and Download**: When users want to find and download papers, use `transfer_to_openreview_agent`
+   - The agent can search OpenReview or download directly from arXiv if you know the paper
+   - Downloaded papers are saved to ./data/downloads/papers/
+   - **IMPORTANT**: Remember the exact filename returned by the download tool
+
+2. **Create Vector Database**: After downloading, the RAG assistant can create a vector database from the PDF
+   - Use `transfer_to_rag_assistant` with the EXACT file path returned by the download tool
+   - The RAG assistant has a tool `Create_Vector_DB_From_PDF` for this purpose
+   - **CRITICAL**: Use the exact filename from the download result, not a simplified version
+   - Example: If download returns "[1706.03762] Attention Is All You Need_1706.03762.pdf", 
+     use that exact filename, not "attention_is_all_you_need.pdf"
+
+3. **Answer Questions**: Once the vector database is created, use `transfer_to_rag_assistant` to answer questions
+   - The RAG assistant can search the vector database and answer questions based on paper content
+
+Complete example workflow:
+- User: "帮我下载 Transformer 论文并根据内容回答问题"
+  1. Transfer to openreview_agent: "下载 arXiv:1706.03762 的论文"
+  2. Get the exact filename from download result (e.g., "[1706.03762] Attention Is All You Need_1706.03762.pdf")
+  3. Transfer to rag_assistant: "从文件 ./data/downloads/papers/[1706.03762] Attention Is All You Need_1706.03762.pdf 创建向量数据库"
+  4. Transfer to rag_assistant: "根据论文内容回答：Transformer 架构的主要创新是什么？"
 
 Available agents:
-- `openreview_agent`: For searching academic papers from OpenReview
-- `rag_assistant`: For querying information from the vector database of papers
+- `openreview_agent`: For searching and downloading papers from OpenReview/arXiv
+- `rag_assistant`: For creating vector databases and querying paper content
 
 Guidelines:
-- If the user asks to search for papers or find papers, route to openreview_agent
-- If the user asks questions about papers (that should be in the database), route to rag_assistant
-- You can transfer between agents multiple times in one conversation
+- **ALWAYS use the exact filename returned by download tools**
+- If the user asks to search/download papers, route to openreview_agent
+- If the user asks to create vector database or answer questions about papers, route to rag_assistant
+- You can transfer between agents multiple times to complete complex tasks
 - Always provide clear context when transferring between agents
+- For well-known papers (like Transformer), you can directly instruct the agent to download from arXiv
 """
 
 
@@ -126,7 +163,22 @@ async def llama_guard_input(state: AgentState, config: RunnableConfig) -> AgentS
     """Check input safety."""
     llama_guard = LlamaGuard()
     safety_output = await llama_guard.ainvoke("User", state["messages"])
-    return {"safety": safety_output, "messages": []}
+    
+    # 初始化研究上下文（如果不存在）
+    if "research_context" not in state or state["research_context"] is None:
+        from dataclasses import dataclass, field
+        
+        @dataclass
+        class ResearchContext:
+            downloaded_papers: list = field(default_factory=list)
+            current_file_path: str = None
+            created_databases: list = field(default_factory=list)
+            original_query: str = None
+            task_status: str = "idle"
+        
+        state["research_context"] = ResearchContext()
+    
+    return {"safety": safety_output, "messages": [], "research_context": state.get("research_context")}
 
 
 async def block_unsafe_content(state: AgentState, config: RunnableConfig) -> AgentState:
@@ -159,9 +211,36 @@ async def call_openreview_agent(state: AgentState, config: RunnableConfig) -> Ag
                 query = msg.content
                 break
     
-    # 直接复用 openreview_agent - 使用相同的状态和配置
-    # 将当前状态传递给子 agent，保持消息历史
-    agent_input = state  # 直接传递整个状态，让子 agent 处理
+    # 初始化研究上下文（如果不存在）
+    if "research_context" not in state or state["research_context"] is None:
+        from dataclasses import dataclass, field
+        from typing import Dict, Any
+        
+        @dataclass
+        class ResearchContext:
+            downloaded_papers: list = field(default_factory=list)
+            current_file_path: str = None
+            created_databases: list = field(default_factory=list)
+            original_query: str = None
+            task_status: str = "idle"
+        
+        state["research_context"] = ResearchContext()
+    
+    research_context = state["research_context"]
+    
+    # 保存原始查询（如果是第一次）
+    if not research_context.original_query:
+        research_context.original_query = query
+    
+    # 更新任务状态
+    research_context.task_status = "downloading"
+    
+    # 修复：只传递用户消息给子 agent，而不是整个状态
+    from langchain_core.messages import HumanMessage
+    agent_input = {
+        "messages": [HumanMessage(content=query)],
+        "remaining_steps": state.get("remaining_steps", 10)
+    }
     
     # 使用相同的配置，确保 thread_id 等保持一致
     sub_config = RunnableConfig(
@@ -180,9 +259,45 @@ async def call_openreview_agent(state: AgentState, config: RunnableConfig) -> Ag
             # 找到最后一个 AI 消息作为响应
             last_agent_message = None
             for msg in reversed(agent_messages):
-                if isinstance(msg, AIMessage):
+                if isinstance(msg, AIMessage) and not msg.tool_calls:
                     last_agent_message = msg
                     break
+            
+            # 改进：从响应中提取文件路径信息
+            file_path = None
+            if last_agent_message:
+                content = last_agent_message.content if hasattr(last_agent_message, "content") else str(last_agent_message)
+                
+                # 尝试从内容中提取文件路径（JSON 格式或文本格式）
+                import json
+                import re
+                
+                # 方法1：尝试解析 JSON（工具返回的格式）
+                try:
+                    # 查找 JSON 块
+                    json_match = re.search(r'\{[^{}]*"file_path"[^{}]*\}', content, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(0)
+                        data = json.loads(json_str)
+                        file_path = data.get("file_path")
+                except:
+                    pass
+                
+                # 方法2：从文本中提取路径模式
+                if not file_path:
+                    path_match = re.search(r'`?([./]data/downloads/papers/[^`\s]+\.pdf)`?', content)
+                    if path_match:
+                        file_path = path_match.group(1)
+                
+                # 如果找到文件路径，存储到状态中
+                if file_path:
+                    logger.info(f"从 openreview_agent 响应中提取到文件路径: {file_path}")
+                    research_context.current_file_path = file_path
+                    research_context.downloaded_papers.append({
+                        "file_path": file_path,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    research_context.task_status = "downloaded"
             
             if last_agent_message:
                 content = last_agent_message.content if hasattr(last_agent_message, "content") else str(last_agent_message)
@@ -190,14 +305,21 @@ async def call_openreview_agent(state: AgentState, config: RunnableConfig) -> Ag
                     content=content,
                     tool_call_id=tool_call_id or "unknown"
                 )
-                return {"messages": [tool_message]}
+                return {
+                    "messages": [tool_message],
+                    "research_context": research_context
+                }
     except Exception as e:
         logger.error(f"调用 openreview_agent 时出错: {e}", exc_info=True)
+        research_context.task_status = "error"
         tool_message = ToolMessage(
             content=f"调用 OpenReview agent 时出错: {str(e)}",
             tool_call_id=tool_call_id or "unknown"
         )
-        return {"messages": [tool_message]}
+        return {
+            "messages": [tool_message],
+            "research_context": research_context
+        }
     
     return {"messages": []}
 
@@ -226,9 +348,25 @@ async def call_rag_assistant(state: AgentState, config: RunnableConfig) -> Agent
                 query = msg.content
                 break
     
-    # 直接复用 rag_assistant - 使用相同的状态和配置
-    # 将当前状态传递给子 agent，保持消息历史
-    agent_input = state  # 直接传递整个状态，让子 agent 处理
+    # 获取研究上下文
+    research_context = state.get("research_context")
+    
+    # 改进：如果查询中包含"创建向量数据库"但没有指定文件路径，使用存储的文件路径
+    if research_context and research_context.current_file_path:
+        if "创建向量数据库" in query or "create vector database" in query.lower():
+            # 检查查询中是否已经包含文件路径
+            if research_context.current_file_path not in query:
+                # 自动添加文件路径到查询中
+                query = f"{query}\n\n文件路径: {research_context.current_file_path}"
+                logger.info(f"自动将文件路径添加到查询: {research_context.current_file_path}")
+                research_context.task_status = "creating_db"
+    
+    # 修复：只传递用户消息给子 agent，而不是整个状态
+    from langchain_core.messages import HumanMessage
+    agent_input = {
+        "messages": [HumanMessage(content=query)],
+        "remaining_steps": state.get("remaining_steps", 10)
+    }
     
     # 使用相同的配置，确保 thread_id 等保持一致
     sub_config = RunnableConfig(
@@ -247,9 +385,27 @@ async def call_rag_assistant(state: AgentState, config: RunnableConfig) -> Agent
             # 找到最后一个 AI 消息作为响应
             last_agent_message = None
             for msg in reversed(agent_messages):
-                if isinstance(msg, AIMessage):
+                if isinstance(msg, AIMessage) and not msg.tool_calls:
                     last_agent_message = msg
                     break
+            
+            # 改进：从响应中提取数据库创建信息
+            if research_context and last_agent_message:
+                content = last_agent_message.content if hasattr(last_agent_message, "content") else str(last_agent_message)
+                
+                # 检查是否成功创建了数据库
+                if "创建向量数据库" in content or "vector database" in content.lower():
+                    import re
+                    # 尝试提取数据库路径
+                    db_path_match = re.search(r'数据库路径[：:]\s*`?([^`\s]+)`?', content)
+                    if db_path_match:
+                        db_path = db_path_match.group(1)
+                        research_context.created_databases.append({
+                            "db_path": db_path,
+                            "file_path": research_context.current_file_path,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        research_context.task_status = "db_created"
             
             if last_agent_message:
                 content = last_agent_message.content if hasattr(last_agent_message, "content") else str(last_agent_message)
@@ -257,14 +413,22 @@ async def call_rag_assistant(state: AgentState, config: RunnableConfig) -> Agent
                     content=content,
                     tool_call_id=tool_call_id or "unknown"
                 )
-                return {"messages": [tool_message]}
+                return {
+                    "messages": [tool_message],
+                    "research_context": research_context
+                }
     except Exception as e:
         logger.error(f"调用 rag_assistant 时出错: {e}", exc_info=True)
+        if research_context:
+            research_context.task_status = "error"
         tool_message = ToolMessage(
             content=f"调用 RAG assistant 时出错: {str(e)}",
             tool_call_id=tool_call_id or "unknown"
         )
-        return {"messages": [tool_message]}
+        return {
+            "messages": [tool_message],
+            "research_context": research_context
+        }
     
     return {"messages": []}
 

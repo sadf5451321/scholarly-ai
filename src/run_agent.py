@@ -130,7 +130,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--message",
         type=str,
-        default="帮我搜索 ICML 2025 的口头报告论文",
+        default="帮我搜索 ICML 2025 的论文",
         help="发送给智能体的消息 (默认: 搜索 ICML 2025 论文)",
     )
     parser.add_argument(

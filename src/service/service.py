@@ -474,7 +474,7 @@ async def upload_files_to_chroma_db(
                     content = await upload_file.read()
                     f.write(content)
                 saved_files.append(file_path)
-
+ 
             os.environ.setdefault("HF_HUB_OFFLINE", "1")
             
             if use_local_embedding:
@@ -672,8 +672,6 @@ async def upload_files_to_chroma_db(
     except Exception as e:
         result["errors"].append(f"创建向量数据库出错：{str(e)}")
         logger.error(f"error creating vector database:{e}",exc_info=True)
-
-
     return result
 
 from agents.tools import clear_retriever_cache
@@ -731,8 +729,5 @@ async def switch_vector_db(
     except Exception as e:
         logger.error(f"Error switching vector database: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error switching vector database: {str(e)}")
-
-
-
 
 app.include_router(router)
