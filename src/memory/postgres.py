@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.store.postgres import AsyncPostgresStore
+
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
@@ -93,7 +94,7 @@ async def get_postgres_store():
         kwargs={"autocommit": True, "row_factory": dict_row, "application_name": application_name},
         # makes sure that the connection is still valid before using it
         check=AsyncConnectionPool.check_connection,
-    ) as pool:
+    ) as pool: 
         try:
             store = AsyncPostgresStore(pool)
             await store.setup()

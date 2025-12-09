@@ -71,6 +71,7 @@ instructions = f"""
 def wrap_model(model: BaseChatModel) -> RunnableSerializable[AgentState, AIMessage]:
     # 让模型知道有哪些工具可以调用
     bound_model = model.bind_tools(tools)
+
     preprocessor = RunnableLambda(
         # 添加系统提示词
         lambda state: [SystemMessage(content=instructions)] + state["messages"],
@@ -95,14 +96,19 @@ async def acall_model(state: AgentState, config: RunnableConfig) -> AgentState:
     logger.info(f"config: {config}")
 
     model_runnable = wrap_model(m)
+    # 调用模型生成响应
     response = await model_runnable.ainvoke(state, config)
 
     # Run llama guard check here to avoid returning the message if it's unsafe
+    # 调用LlamaGuard模型检查是否存在unsafe内容
+    # 如果存在unsafe内容，则返回unsafe消息
+    # 如果不存在unsafe内容，则返回response
     llama_guard = LlamaGuard()
     safety_output = await llama_guard.ainvoke("Agent", state["messages"] + [response])
     if safety_output.safety_assessment == SafetyAssessment.UNSAFE:
         return {"messages": [format_safety_message(safety_output)], "safety": safety_output}
 
+    # 如果剩余步骤小于2且有工具调用，则返回需要更多步骤的消息
     if state["remaining_steps"] < 2 and response.tool_calls:
         return {
             "messages": [
@@ -117,6 +123,9 @@ async def acall_model(state: AgentState, config: RunnableConfig) -> AgentState:
 
 
 async def llama_guard_input(state: AgentState, config: RunnableConfig) -> AgentState:
+    # 调用LlamaGuard模型检查是否存在unsafe内容
+    # 如果存在unsafe内容，则返回unsafe消息
+    # 如果不存在unsafe内容，则返回空消息
     llama_guard = LlamaGuard()
     safety_output = await llama_guard.ainvoke("User", state["messages"])
     return {"safety": safety_output, "messages": []}
@@ -168,13 +177,15 @@ agent.add_edge("tools", "model")
 def pending_tool_calls(state: AgentState) -> Literal["tools", "done"]:
 
     logger.debug(f"pending_tool_calls_state: {state}")
-
+    # 获取最后一条消息
     last_message = state["messages"][-1]
 
     logger.debug(f"last_message: {last_message}")
 
+    # 如果最后一条消息不是AIMessage，则抛出错误
     if not isinstance(last_message, AIMessage):
         raise TypeError(f"Expected AIMessage, got {type(last_message)}")
+    # 如果最后一条消息是工具调用，则返回tools
     if last_message.tool_calls:
         return "tools"
     return "done"

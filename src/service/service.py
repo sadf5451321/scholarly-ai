@@ -159,22 +159,28 @@ async def _handle_input(user_input: UserInput, agent: AgentGraph) -> tuple[dict[
     """
     run_id = uuid4()
     thread_id = user_input.thread_id or str(uuid4())
+
     user_id = user_input.user_id or str(uuid4())
+    
 
     configurable = {"thread_id": thread_id, "user_id": user_id}
+    # 如果用户输入的模型不为空，则设置模型
     if user_input.model is not None:
         configurable["model"] = user_input.model
 
     callbacks = []
+    # 如果开启了Langfuse追踪，则添加Langfuse回调
     if settings.LANGFUSE_TRACING:
         # Initialize Langfuse CallbackHandler for Langchain (tracing)
         langfuse_handler = CallbackHandler()
 
         callbacks.append(langfuse_handler)
 
+    # 如果用户输入的agent_config不为空，则更新configurable
     if user_input.agent_config:
         # Check for reserved keys (including 'model' even if not in configurable)
         reserved_keys = {"thread_id", "user_id", "model"}
+        # 如果用户输入的agent_config包含保留关键字，则抛出错误
         if overlap := reserved_keys & user_input.agent_config.keys():
             raise HTTPException(
                 status_code=422,
@@ -182,6 +188,7 @@ async def _handle_input(user_input: UserInput, agent: AgentGraph) -> tuple[dict[
             )
         configurable.update(user_input.agent_config)
 
+    # 创建RunnableConfig
     config = RunnableConfig(
         configurable=configurable,
         run_id=run_id,
@@ -189,11 +196,13 @@ async def _handle_input(user_input: UserInput, agent: AgentGraph) -> tuple[dict[
     )
 
     # Check for interrupts that need to be resumed
+    # 获取状态
     state = await agent.aget_state(config=config)
+    # 获取中断任务
     interrupted_tasks = [
         task for task in state.tasks if hasattr(task, "interrupts") and task.interrupts
     ]
-
+    # 如果存在中断任务，则创建命令
     input: Command | dict[str, Any]
     if interrupted_tasks:
         # assume user input is response to resume agent execution from interrupt
@@ -222,6 +231,7 @@ async def invoke(user_input: UserInput, agent_id: str = DEFAULT_AGENT) -> ChatMe
     """
 
     agent: AgentGraph = get_agent(agent_id)
+    # 处理输入
     kwargs, run_id = await _handle_input(user_input, agent)
 
     try:
