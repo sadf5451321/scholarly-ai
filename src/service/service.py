@@ -668,6 +668,7 @@ async def upload_files_to_chroma_db(
                     return result
 
             if db_type == "qdrant":
+
                 try:
                     from langchain_qdrant import QdrantVectorStore
                     from qdrant_client import QdrantClient
@@ -696,6 +697,24 @@ async def upload_files_to_chroma_db(
                     collection_name = collection_name,
                     embedding = embeddings,
 
+                )
+            if db_type == "milvus":
+                try:
+                    from langchain_milvus import Milvus
+                except ImportError:
+                    result['errors'].append("请安装langchain-milvus")
+                    return result
+
+                milvus_host = os.getenv("MILVUS_HOST", "localhost")
+                milvus_port = os.getenv("MILVUS_PORT", 19530)
+                collection_name = db_name
+                vector_store = Milvus(
+                    embedding_function = embeddings,
+                    collection_name = collection_name,
+                    connection_args ={
+                        "host":milvus_host,
+                        "port":milvus_port,
+                    },
                 )
             else:
                 # Chroma 数据库的删除已经在上面统一处理了

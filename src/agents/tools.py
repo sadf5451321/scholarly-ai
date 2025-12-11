@@ -193,7 +193,7 @@ def _get_retriever():
 
 def load_vector_db():
     """
-    加载向量数据库（支持 Chroma 和 Qdrant）
+    加载向量数据库（支持 Chroma 和 Qdrant 和 Milvus ）
     通过环境变量 VECTOR_DB_TYPE 选择数据库类型
     默认路径统一使用 vector_databases 文件夹
     """
@@ -247,6 +247,32 @@ def load_vector_db():
             embedding=embeddings,
         )
         
+        retriever = vector_store.as_retriever(search_kwargs={"k": 5})
+        return retriever
+
+
+    if db_type == "milvus":
+        # 使用 Milvus 本地嵌入式模式
+        try:
+            from langchain_milvus import Milvus
+        except ImportError:
+            raise ImportError(
+                "需要安装 milvus-client 和 langchain-milvus: "
+                "pip install milvus-client langchain-milvus")
+        
+        milvus_host = os.getenv("MILVUS_HOST", "localhost")
+        milvus_port = os.getenv("MILVUS_PORT", 19530)
+        collection_name = os.getenv("MILVUS_COLLECTION", "documents")
+
+        vector_store = Milvus(
+            embedding_function=embeddings,
+            collection_name = collection_name,
+            connection_args ={
+                "host":milvus_host,
+                "port":milvus_port,
+            },
+        
+        )
         retriever = vector_store.as_retriever(search_kwargs={"k": 5})
         return retriever
     
@@ -336,6 +362,7 @@ def create_vector_db_from_pdf_func(
     import shutil
     from datetime import datetime
     from langchain.text_splitter import RecursiveCharacterTextSplitter
+    
     from langchain_community.document_loaders import PyPDFLoader
     
     logger = logging.getLogger(__name__)
